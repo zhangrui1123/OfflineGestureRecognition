@@ -1,6 +1,6 @@
-# finger-ml: Mathematical Model and Algorithm Pipeline
+﻿# finger-ml: Mathematical Model and Algorithm Pipeline
 
-This document describes the offline hand-gesture **event detection** system implemented in `finger-ml`: the feature construction, neural architecture, training objective, inference, and post-processin[...]
+This document describes the offline hand-gesture **event detection** system implemented in `finger-ml`: the feature construction, neural architecture, training objective, inference, and post-processing.
 
 ## 1. Problem Formulation
 
@@ -10,7 +10,7 @@ $$
 \mathcal{E} = \{(c_k, t_k^{\text{start}}, t_k^{\text{end}})\}_{k=1}^{K}
 $$
 
-where $c_k \in \{0,\ldots,6\}$ is a gesture class (6 gestures + background) and $t_k^{\text{start}}, t_k^{\text{end}}$ are frame indices (0-based in the implementation) or derived timestamps in mi[...]
+where $c_k \in \{0,\ldots,6\}$ is a gesture class (6 gestures + background) and $t_k^{\text{start}}, t_k^{\text{end}}$ are frame indices (0-based in the implementation) or derived timestamps in milliseconds.
 
 This is cast as **dense temporal segmentation**: predict a class label $y_t$ for every frame $t = 0,\ldots,T-1$, then convert contiguous non-background segments into events.
 
@@ -18,7 +18,7 @@ This is cast as **dense temporal segmentation**: predict a class label $y_t$ for
 | --- | --- | --- |
 | 0 | `pinch_index` | Thumb pinches index fingertip |
 | 1 | `pinch_middle` | Thumb pinches middle fingertip |
-| 2–5 | `thumb_slide_*` | Thumb slides up/down/left/right |
+| 2鈥? | `thumb_slide_*` | Thumb slides up/down/left/right |
 | 6 | `background` | Rest / transition |
 
 ---
@@ -39,11 +39,11 @@ flowchart LR
     J --> K[Events JSON]
 ```
 
-### Stage A — Data collection (optional, for training)
+### Stage A 鈥?Data collection (optional, for training)
 
 `finger-collect` records MP4 + per-gesture start/end annotations in JSON.
 
-### Stage B — Preprocessing (training only)
+### Stage B 鈥?Preprocessing (training only)
 
 `finger-preprocess` runs MediaPipe on labeled videos and writes `data/features/<session>.npz`:
 
@@ -51,14 +51,14 @@ flowchart LR
 | --- | --- | --- |
 | `landmarks` | `[T, 21, 3]` | Normalized skeleton |
 | `features` | `[T, 21, 12]` | Extended per-node features |
-| `labels` | `[T]` | Frame-level class (0–6) |
+| `labels` | `[T]` | Frame-level class (0鈥?) |
 | `train_mask` | `[T]` | `False` on ignored transition frames |
 
-### Stage C — Training
+### Stage C 鈥?Training
 
 `finger-train` learns frame-wise class logits and boundary probabilities from `.npz` chunks.
 
-### Stage D — Detection (inference)
+### Stage D 鈥?Detection (inference)
 
 `finger-detect` applies the same feature pipeline to any MP4 and writes event JSON (+ optional overlay video).
 
@@ -81,28 +81,34 @@ If detection fails at frame $t$, the previous valid landmarks are held (zero-ord
 Raw landmarks are converted to a **scale- and rotation-invariant** palm frame (`features.normalize_landmarks`).
 
 1. **Translate** to wrist origin (index 0):
-   $$
-   \tilde{\mathbf{p}}_t^{(i)} = \mathbf{p}_t^{(i)} - \mathbf{p}_t^{(0)}
-   $$
+
+$$
+\tilde{\mathbf{p}}_t^{(i)} = \mathbf{p}_t^{(i)} - \mathbf{p}_t^{(0)}
+$$
 
 2. **Set scale** from index-MCP distance (index 5):
-   $$
-   s_t = \left\lVert \tilde{\mathbf{p}}_t^{(5)} \right\rVert_2
-   $$
-   (if $s_t < 10^{-6}$, fall back to $s_t = 1$ and $\mathbf{x} = (1,0,0)$).
+
+$$
+s_t = \left\lVert \tilde{\mathbf{p}}_t^{(5)} \right\rVert_2
+$$
+
+(if $s_t < 10^{-6}$, fall back to $s_t = 1$ and $\mathbf{x} = (1,0,0)$).
 
 3. **Build orthonormal basis** (note: pinky MCP uses the **centered**, unscaled vector):
-   $$
-   \mathbf{x} = \frac{\tilde{\mathbf{p}}_t^{(5)}}{s_t}, \quad
-   \mathbf{z} = \frac{\mathbf{x} \times \tilde{\mathbf{p}}_t^{(17)}}{\left\lVert \mathbf{x} \times \tilde{\mathbf{p}}_t^{(17)} \right\rVert_2}, \quad
-   \mathbf{y} = \frac{\mathbf{z} \times \mathbf{x}}{\left\lVert \mathbf{z} \times \mathbf{x} \right\rVert_2}
-   $$
+
+$$
+\mathbf{x} = \frac{\tilde{\mathbf{p}}_t^{(5)}}{s_t}, \quad
+\mathbf{z} = \frac{\mathbf{x} \times \tilde{\mathbf{p}}_t^{(17)}}{\left\lVert \mathbf{x} \times \tilde{\mathbf{p}}_t^{(17)} \right\rVert_2}, \quad
+\mathbf{y} = \frac{\mathbf{z} \times \mathbf{x}}{\left\lVert \mathbf{z} \times \mathbf{x} \right\rVert_2}
+$$
 
 4. **Project** into palm frame with $B_t = [\mathbf{x}\ \mathbf{y}\ \mathbf{z}] \in \mathbb{R}^{3 \times 3}$ (columns = basis vectors):
-   $$
-   \mathbf{q}_t^{(i)} = \frac{\tilde{\mathbf{p}}_t^{(i)\top} B_t}{s_t}
-   $$
-   Equivalently, in code: `(centered @ basis) / scale`.
+
+$$
+\mathbf{q}_t^{(i)} = \frac{\tilde{\mathbf{p}}_t^{(i)\top} B_t}{s_t}
+$$
+
+Equivalently, in code: `(centered @ basis) / scale`.
 
 Output: $\mathbf{Q}_t \in \mathbb{R}^{21 \times 3}$.
 
@@ -112,20 +118,20 @@ Output: $\mathbf{Q}_t \in \mathbb{R}^{21 \times 3}$.
 
 For each frame, `build_motion_features` constructs $\mathbf{X}_t \in \mathbb{R}^{21 \times 12}$.
 
-**Per-joint channels (0–5):**
+**Per-joint channels (0鈥?):**
 
 | Channel | Symbol | Definition |
 | --- | --- | --- |
-| 0–2 | $x,y,z$ | Normalized joint position $\mathbf{q}_t^{(i)}$ |
-| 3–5 | $dx,dy,dz$ | Temporal difference $\mathbf{q}_t^{(i)} - \mathbf{q}_{t-1}^{(i)}$ (zero at $t=0$) |
+| 0鈥? | $x,y,z$ | Normalized joint position $\mathbf{q}_t^{(i)}$ |
+| 3鈥? | $dx,dy,dz$ | Temporal difference $\mathbf{q}_t^{(i)} - \mathbf{q}_{t-1}^{(i)}$ (zero at $t=0$) |
 
-**Global channels (6–11), broadcast to all 21 joints:**
+**Global channels (6鈥?1), broadcast to all 21 joints:**
 
 | Channel | Symbol | Definition |
 | --- | --- | --- |
-| 6 | $d_{TI}$ | $\left\lVert \mathbf{q}_t^{(4)} - \mathbf{q}_t^{(8)} \right\rVert_2$ (thumb tip – index tip) |
-| 7 | $d_{TM}$ | $\left\lVert \mathbf{q}_t^{(4)} - \mathbf{q}_t^{(12)} \right\rVert_2$ (thumb tip – middle tip) |
-| 8–10 | $\Delta_{TI}$ | $\mathbf{q}_t^{(4)} - \mathbf{q}_t^{(8)}$ (thumb–index displacement vector) |
+| 6 | $d_{TI}$ | $\left\lVert \mathbf{q}_t^{(4)} - \mathbf{q}_t^{(8)} \right\rVert_2$ (thumb tip 鈥?index tip) |
+| 7 | $d_{TM}$ | $\left\lVert \mathbf{q}_t^{(4)} - \mathbf{q}_t^{(12)} \right\rVert_2$ (thumb tip 鈥?middle tip) |
+| 8鈥?0 | $\Delta_{TI}$ | $\mathbf{q}_t^{(4)} - \mathbf{q}_t^{(8)}$ (thumb鈥搃ndex displacement vector) |
 | 11 | valid | MediaPipe detection flag $v_t \in \{0,1\}$, repeated across joints |
 
 Tensor layout for the network: $\mathbf{X} \in \mathbb{R}^{B \times C \times T \times V}$ with $C=12$, $V=21$ (channels-first, as `x.permute(2, 0, 1)`).
@@ -136,7 +142,7 @@ Tensor layout for the network: $\mathbf{X} \in \mathbb{R}^{B \times C \times T \
 
 ### 6.1 Graph Structure
 
-Anatomical hand edges $\mathcal{E}$ (plus self-loops) define an adjacency matrix. The implementation initializes $\mathbf{A} = \mathbf{I}$, then sets $\mathbf{A}_{ij}=\mathbf{A}_{ji}=1$ for each[...]
+Anatomical hand edges $\mathcal{E}$ (plus self-loops) define an adjacency matrix. The implementation initializes $\mathbf{A} = \mathbf{I}$, then sets $\mathbf{A}_{ij}=\mathbf{A}_{ji}=1$ for each bone edge $(i,j)\in\mathcal{E}$, and applies symmetric degree normalization:
 
 $$
 \hat{\mathbf{A}} = \mathbf{D}^{-1/2}\,\mathbf{A}\,\mathbf{D}^{-1/2}, \quad D_{ii} = \sum_j A_{ij}
@@ -176,13 +182,16 @@ $$
 Default: 2 temporal stages (`temporal_stages=2`) and 6 dilated residual layers per stage (dilations $2^i$: $1,2,4,8,16,32$).
 
 **Stage 0** (input = encoder output $\mathbf{H}$):
+
 $$
 \mathbf{Z}^{(0)},\ \mathbf{L}^{(0)} = \text{TemporalStage}_0(\mathbf{H}), \quad
 \mathbf{L}^{(0)} \in \mathbb{R}^{B \times 7 \times T}
 $$
+
 where $\mathbf{Z}^{(0)}$ is the hidden temporal feature map and $\mathbf{L}^{(0)}$ is the class logit map.
 
 **Refinement stages** $s = 1,\ldots,S-1$ (default $S=2$, one refiner):
+
 $$
 \mathbf{L}^{(s)} = \text{Classifier}\big(\text{TemporalStage}_s(\text{softmax}(\mathbf{L}^{(s-1)}))\big)
 $$
@@ -203,7 +212,7 @@ Channel 0 = start-boundary logit, channel 1 = end-boundary logit.
 
 ## 7. Training Objective
 
-For each chunk, let $\mathbf{L}^{(s)}$ be stage logits, $\mathbf{B}$ boundary logits, $\mathbf{y}$ frame labels, and $\mathbf{m} \in \{0,1\}^T$ the train mask (`train_mask`; ignored frames use[...]
+For each chunk, let $\mathbf{L}^{(s)}$ be stage logits, $\mathbf{B}$ boundary logits, $\mathbf{y}$ frame labels, and $\mathbf{m} \in \{0,1\}^T$ the train mask (`train_mask`; ignored frames use label $-100$).
 
 ### 7.1 Weighted Cross-Entropy (per stage)
 
@@ -276,46 +285,54 @@ where $N_t$ is the number of overlapping chunk predictions covering frame $t$.
 
 ---
 
-## 9. Post-Processing: Frame Labels → Events
+## 9. Post-Processing: Frame Labels 鈫?Events
 
 Given $\hat{\mathbf{p}}_t \in \mathbb{R}^7$:
 
 1. **Argmax + confidence gate:**
-   $$
-   \tilde{y}_t = \arg\max_c \hat{p}_{t,c}, \qquad
-   \hat{y}_t = \begin{cases}
-   \tilde{y}_t & \text{if } \hat{p}_{t,\tilde{y}_t} \geq \theta \\
-   6 \text{ (background)} & \text{otherwise}
-   \end{cases}
-   $$
-   Default $\theta = 0.55$.
 
-2. **Weighted temporal smoothing** (window $w=7$, half-width $\lfloor w/2 \rfloor = 3$): for each $t$, among non-background labels in the gated sequence $\hat{y}$ within $[t-3,\, t+3]$, pick[...]
+$$
+\tilde{y}_t = \arg\max_c \hat{p}_{t,c}, \qquad
+\hat{y}_t = \begin{cases}
+\tilde{y}_t & \text{if } \hat{p}_{t,\tilde{y}_t} \geq \theta \\
+6 \text{ (background)} & \text{otherwise}
+\end{cases}
+$$
+
+Default $\theta = 0.55$.
+
+2. **Weighted temporal smoothing** (window $w=7$, half-width $\lfloor w/2 \rfloor = 3$): for each $t$, among non-background labels in the gated sequence $\hat{y}$ within $[t-3,\, t+3]$, pick class $c$ maximizing $\sum_{k} \hat{p}_{k,c}$. If no non-background labels exist in the window, set background.
 
 3. **Segment extraction:** contiguous runs of the same non-background label with
-   $$
-   \text{duration}(t_i \ldots t_j) = j - i + 1 \geq L_{\min}, \quad L_{\min} = \max\!\left(1,\, \left\lfloor \frac{t_{\min}^{\text{ms}} \cdot \text{fps}}{1000} \right\rceil \right)
-   $$
-   Default $t_{\min}^{\text{ms}} = 120$.
 
-4. **Boundary refinement:** for coarse segment $[i,j]$, set
-   $\text{pad} = \max(3,\, \min(12,\, \lfloor(j-i+1)/2\rfloor))$. Search windows are clamped to $[0,\, T)$:
-   $$
-   s_0 = \max(0,\, i - \text{pad}),\ s_1 = \min(T,\, i + \text{pad} + 1),\quad
-   i^* = s_0 + \arg\max_{t \in [s_0,\, s_1)} \hat{b}_{0,t}
-   $$
-   $$
-   e_0 = \max(0,\, j - \text{pad}),\ e_1 = \min(T,\, j + \text{pad} + 1),\quad
-   j^* = e_0 + \arg\max_{t \in [e_0,\, e_1)} \hat{b}_{1,t}
-   $$
-   (if $j^* < i^*$, set $j^* = i^*$).
+$$
+\text{duration}(t_i \ldots t_j) = j - i + 1 \geq L_{\min}, \quad L_{\min} = \max\!\left(1,\, \left\lfloor \frac{t_{\min}^{\text{ms}} \cdot \text{fps}}{1000} \right\rceil \right)
+$$
 
-5. **Merge:** combine adjacent same-class segments if frame gap $g = \text{start}_{k+1} - \text{end}_k - 1 \leq G_{\max}$, where $G_{\max} = \lfloor t_{\text{gap}}^{\text{ms}} \cdot \text{fps}[...]
+Default $t_{\min}^{\text{ms}} = 120$.
+
+4. **Boundary refinement:** for coarse segment $[i,j]$, set $\text{pad} = \max(3,\, \min(12,\, \lfloor(j-i+1)/2\rfloor))$. Search windows are clamped to $[0,\, T)$:
+
+$$
+s_0 = \max(0,\, i - \text{pad}),\ s_1 = \min(T,\, i + \text{pad} + 1),\quad
+i^* = s_0 + \arg\max_{t \in [s_0,\, s_1)} \hat{b}_{0,t}
+$$
+
+$$
+e_0 = \max(0,\, j - \text{pad}),\ e_1 = \min(T,\, j + \text{pad} + 1),\quad
+j^* = e_0 + \arg\max_{t \in [e_0,\, e_1)} \hat{b}_{1,t}
+$$
+
+(if $j^* < i^*$, set $j^* = i^*$).
+
+5. **Merge:** combine adjacent same-class segments if frame gap $g = \text{start}_{k+1} - \text{end}_k - 1 \leq G_{\max}$, where $G_{\max} = \lfloor t_{\text{gap}}^{\text{ms}} \cdot \text{fps} / 1000 \rceil$ (default 120 ms).
 
 Output event (0-based inclusive frame indices):
+
 $$
 \text{event}_k = \{\text{gesture},\, \text{start\_frame},\, \text{end\_frame},\, \text{start\_ms},\, \text{end\_ms},\, \text{mean\_conf}\}
 $$
+
 with $\text{start\_ms} = \lfloor 1000 \cdot \text{start\_frame} / \text{fps} \rceil$ and $\text{mean\_conf} = \frac{1}{j^* - i^* + 1}\sum_{t=i^*}^{j^*} \hat{p}_{t,c}$.
 
 ---
@@ -336,7 +353,7 @@ Greedy matching: each GT event is paired with the highest-IoU unmatched predicti
 
 | Stage | Dominant cost |
 | --- | --- |
-| MediaPipe VIDEO | ~35–80 fps @ 1080p (CPU) |
+| MediaPipe VIDEO | ~35鈥?0 fps @ 1080p (CPU) |
 | Model inference | Chunked ST-GCN + TCN on CPU/GPU |
 | Overlay video | Second full video pass + encoding |
 
@@ -353,10 +370,9 @@ Greedy matching: each GT event is paired with the highest-IoU unmatched predicti
 | --- | --- |
 | `hand_tracking.py` | MediaPipe wrapper |
 | `features.py` | Normalization + 12-D features |
-| `preprocess.py` | Video → `.npz` |
+| `preprocess.py` | Video 鈫?`.npz` |
 | `dataset.py` | Chunk dataset + boundary targets |
 | `model.py` | ST-GCN + MS-TCN + event post-process |
 | `train.py` | Training loop + losses |
-| `detect.py` | Video → events JSON |
+| `detect.py` | Video 鈫?events JSON |
 | `eval_events.py` | Event-level metrics |
-
